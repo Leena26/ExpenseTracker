@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Expense Receipt OCR - Demo</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 20px; max-width: 900px; margin: auto }
+      .row { display:flex; gap:16px; align-items:center }
+      button { padding:8px 12px }
+      #parsed { white-space: pre-wrap; background:#f7f7f7; padding:12px; margin-top:12px }
+      canvas { max-width:100%; }
+    </style>
+  </head>
+  <body>
+    <h1>Receipt Upload (Demo)</h1>
+
+    <form id="uploadForm">
+      <div class="row">
+        <input type="file" id="file" name="file" accept="image/*,.pdf" />
+        <button type="submit">Upload</button>
+      </div>
+    </form>
+
+    <h2>Parsed Result</h2>
+    <div id="parsed">No upload yet.</div>
+
+    <h2>Analytics</h2>
+    <div>
+      <canvas id="chart" width="600" height="300"></canvas>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
