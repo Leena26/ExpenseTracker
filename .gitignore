@@ -1,6 +1,24 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Node
 node_modules/
-uploads/
-data.sqlite
-package-lock.json
+
+# Environment variables
 .env
+.env.*
+
+# OCR / generated files
+ocr/__pycache__/
+*.log
+
+# Temporary files
+tmp/
+temp/
+uploads/
+
+# OS
 .DS_Store
+Thumbs.db
