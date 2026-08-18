@@ -23,7 +23,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     const filePath = req.file.path;
 
     // TODO: Replace parseReceipt with real OCR + LLM processing.
-    // - For OCR: use Tesseract (tesseract.js or system tesseract via child_process),
+    // - For OCR: Paddle,
     //   or a cloud OCR API (Google Vision, AWS Textract, Azure Form Recognizer).
     // - For LLM: send OCR text to OpenAI/other LLM with a prompt that extracts
     //   fields (date, vendor, line items, total) and returns JSON.
@@ -72,47 +72,117 @@ async function parseReceipt(filePath, originalName) {
     ocrText = '';
   }
 
-  // Heuristic parsing from OCR text
+  // Heuristic parsing from OCR text and boxes
   const raw = (ocrText || '').trim();
   const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
-  // Vendor: assume first non-empty line (often merchant name)
-  const vendor = lines.length ? lines[0] : base;
-
-  // Amount detection: find all currency-like numbers and pick the largest plausible total
-  const amountCandidates = [];
-  const moneyRegex = /(?:[$€£]\s?\d{1,3}(?:[\,\d]*)(?:\.\d{1,2})?)|\d{1,3}(?:[\,\d]*)(?:\.\d{1,2})?/g;
-  const matches = raw.match(moneyRegex) || [];
-  for (const m of matches) {
-    // strip currency symbols and commas
-    const cleaned = m.replace(/[^0-9.]/g, '');
-    const n = parseFloat(cleaned);
-    if (!Number.isNaN(n)) amountCandidates.push(n);
+  // Build line objects from OCR pages (if available) to use position info
+  const lineObjs = [];
+  if (Array.isArray(pages) && pages.length) {
+    for (let p = 0; p < pages.length; p++) {
+      const pg = pages[p];
+      const texts = pg.texts || [];
+      const boxes = pg.boxes || [];
+      for (let i = 0; i < texts.length; i++) {
+        const txt = texts[i] || '';
+        const box = boxes[i] || null; // box = [[x,y],...]
+        let cx = null, cy = null;
+        if (Array.isArray(box) && box.length) {
+          let sx = 0, sy = 0;
+          for (const pt of box) { sx += Number(pt[0]); sy += Number(pt[1]); }
+          cx = sx / box.length; cy = sy / box.length;
+        }
+        lineObjs.push({ text: txt, page: p, cx, cy });
+      }
+    }
   }
-  // pick the largest candidate as total (simple heuristic)
-  const amount = amountCandidates.length ? Math.max(...amountCandidates) : null;
 
-  // Date detection: simple regex for common date patterns
+  // Vendor: choose the top-most non-empty textual line that isn't a label
+  const vendorBlacklist = /total|subtotal|tax|invoice|receipt|amount|date|qty|qty\.|balance/i;
+  let vendor = null;
+  if (lineObjs.length) {
+    // sort by y (cy) ascending (top of page)
+    const topCandidates = lineObjs.filter(l => l.text && /[A-Za-z]/.test(l.text)).sort((a,b) => (a.cy||0) - (b.cy||0));
+    for (const c of topCandidates) {
+      if (!vendorBlacklist.test(c.text) && c.text.length > 2) { vendor = c.text; break; }
+    }
+  }
+  if (!vendor) vendor = lines.length ? lines[0] : base;
+
+  // Amount detection: prefer numbers with decimals or currency symbols; ignore long integer sequences (merchant codes)
+  const moneyRegex = /(?:\$\s*\d{1,3}(?:[\,\d]*)(?:\.\d{1,2})?)|(?:\b\d{1,3}(?:[\,\d]*)(?:\.\d{1,2})\b)/g;
+  const keywordHint = /total|balance|amount|grand total|amount due|due/i;
+  const candidates = [];
+
+  // Use positional candidates from lineObjs when available
+  if (lineObjs.length) {
+    for (const l of lineObjs) {
+      const txt = l.text || '';
+      let m;
+      while ((m = moneyRegex.exec(txt)) !== null) {
+        const rawNum = m[1].replace(/,/g,'');
+        const val = parseFloat(rawNum);
+        if (Number.isFinite(val)) {
+          const hasKeyword = keywordHint.test(txt);
+          const score = (hasKeyword ? 100000 : 0) + val * 100 + (l.cy || 0) * 0.1 + (l.cx || 0) * 0.05;
+          candidates.push({ val, text: txt, cx: l.cx, cy: l.cy, score });
+        }
+      }
+    }
+  }
+
+  // Fallback: scan raw text for money-like tokens (last 2-decimal number often total)
+  let amount = null;
+  if (!candidates.length) {
+    // find decimal numbers (xx.yy) and currency-prefixed numbers; ignore long integers
+    const allNums = (raw.match(/\b\d{1,5}\.\d{2}\b/g) || []).map(s => parseFloat(s.replace(/,/g,'')));
+    if (allNums.length) {
+      amount = allNums[allNums.length - 1];
+    } else {
+      // as a last resort, find any $... pattern
+      const symbolNums = [];
+      let m;
+      const symRe = /\$\s*(\d{1,3}(?:[\,\d]*)(?:\.\d{1,2})?)/g;
+      while ((m = symRe.exec(raw)) !== null) {
+        symbolNums.push(parseFloat(m[1].replace(/,/g,'')));
+      }
+      if (symbolNums.length) amount = symbolNums[symbolNums.length-1];
+    }
+  } else {
+    // Prefer highest score candidate
+    candidates.sort((a,b) => b.score - a.score);
+    amount = candidates.length ? candidates[0].val : null;
+  }
+
+  // Date detection: try line-level regexes first, then raw text
   let date = null;
   const dateRegexes = [
     /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\b/,
     /\b(\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})\b/,
     /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*[ .,-]*(\d{1,2}),?[ .,-]*(\d{4})/i
   ];
-  for (const rx of dateRegexes) {
-    const m = raw.match(rx);
-    if (m) {
-      // attempt to parse with Date
-      const candidate = m[0];
-      const parsed = new Date(candidate);
-      if (!Number.isNaN(parsed.getTime())) {
-        date = parsed.toISOString().slice(0, 10);
-        break;
+  // check lineObjs first
+  for (const l of lineObjs) {
+    for (const rx of dateRegexes) {
+      const m = l.text.match(rx);
+      if (m) {
+        const parsed = new Date(m[0]);
+        if (!Number.isNaN(parsed.getTime())) { date = parsed.toISOString().slice(0,10); break; }
+      }
+    }
+    if (date) break;
+  }
+  // fallback to raw
+  if (!date) {
+    for (const rx of dateRegexes) {
+      const m = raw.match(rx);
+      if (m) {
+        const parsed = new Date(m[0]);
+        if (!Number.isNaN(parsed.getTime())) { date = parsed.toISOString().slice(0,10); break; }
       }
     }
   }
-  // fallback: use upload date
-  if (!date) date = new Date().toISOString().slice(0, 10);
+  if (!date) date = new Date().toISOString().slice(0,10);
 
   return {
     source_file: base,
@@ -121,7 +191,7 @@ async function parseReceipt(filePath, originalName) {
     vendor,
     amount,
     category: 'uncategorized',
-    raw_text_excerpt: raw.slice(0, 1000)
+    raw_text_excerpt: raw.slice(0, 2000)
   };
 }
 
