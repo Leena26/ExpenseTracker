@@ -35,6 +35,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       res.json({ id: this.lastID, parsed });
     });
   } catch (err) {
+    console.error("UPLOAD ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -120,7 +121,9 @@ async function parseReceipt(filePath, originalName) {
       const txt = l.text || '';
       let m;
       while ((m = moneyRegex.exec(txt)) !== null) {
-        const rawNum = m[1].replace(/,/g,'');
+        // use the full match (m[0]) because capture groups may be absent
+        const matched = m[0] || '';
+        const rawNum = matched.replace(/[^0-9.]/g, '');
         const val = parseFloat(rawNum);
         if (Number.isFinite(val)) {
           const hasKeyword = keywordHint.test(txt);
@@ -144,7 +147,10 @@ async function parseReceipt(filePath, originalName) {
       let m;
       const symRe = /\$\s*(\d{1,3}(?:[\,\d]*)(?:\.\d{1,2})?)/g;
       while ((m = symRe.exec(raw)) !== null) {
-        symbolNums.push(parseFloat(m[1].replace(/,/g,'')));
+        const matched = m[0] || '';
+        const num = matched.replace(/[^0-9.]/g, '');
+        const parsedNum = parseFloat(num);
+        if (Number.isFinite(parsedNum)) symbolNums.push(parsedNum);
       }
       if (symbolNums.length) amount = symbolNums[symbolNums.length-1];
     }
