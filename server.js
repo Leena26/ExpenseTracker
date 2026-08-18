@@ -4,8 +4,11 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./db');
 const cors = require('cors');
+const axios = require('axios');
+const FormData = require('form-data');
 
 const app = express();
+const PYTHON_OCR_URL = 'http://localhost:5001';
 const upload = multer({ dest: path.join(__dirname, 'uploads/') });
 
 app.use(cors());
@@ -24,7 +27,7 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     //   or a cloud OCR API (Google Vision, AWS Textract, Azure Form Recognizer).
     // - For LLM: send OCR text to OpenAI/other LLM with a prompt that extracts
     //   fields (date, vendor, line items, total) and returns JSON.
-    const parsed = await parseReceipt(filePath);
+    const parsed = await parseReceipt(filePath, req.file.originalname);
 
     const stmt = db.prepare('INSERT INTO expenses (date, vendor, amount, category, raw_json) VALUES (?, ?, ?, ?, ?)');
     stmt.run(parsed.date, parsed.vendor, parsed.amount, parsed.category || null, JSON.stringify(parsed), function (err) {
@@ -45,20 +48,80 @@ app.get('/api/expenses', (req, res) => {
 });
 
 // Simple parser placeholder - returns mocked parsed data from filename
-async function parseReceipt(filePath) {
+async function parseReceipt(filePath, originalName) {
   // Basic heuristic: use filename and file size to generate demo data.
   const stat = fs.statSync(filePath);
   const base = path.basename(filePath);
+  // Send the uploaded file to the Python OCR microservice
+  let ocrText = '';
+  let pages = [];
+  try {
+    const form = new FormData();
+    // preserve the original filename so OCR service can detect extension
+    const uploadName = originalName || base;
+    form.append('receipt', fs.createReadStream(filePath), { filename: uploadName });
+    const headers = form.getHeaders();
+    const resp = await axios.post(`${PYTHON_OCR_URL}/ocr`, form, { headers, timeout: 120000 });
+    if (resp && resp.data) {
+      ocrText = resp.data.full_text || '';
+      pages = resp.data.pages || [];
+    }
+  } catch (err) {
+    // If OCR call fails, fall back to empty text and let heuristics handle it
+    console.error('OCR service error:', err && err.stack ? err.stack : (err.message || err));
+    ocrText = '';
+  }
 
-  // In a real pipeline, run OCR here and then call an LLM to convert to structured JSON.
+  // Heuristic parsing from OCR text
+  const raw = (ocrText || '').trim();
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+  // Vendor: assume first non-empty line (often merchant name)
+  const vendor = lines.length ? lines[0] : base;
+
+  // Amount detection: find all currency-like numbers and pick the largest plausible total
+  const amountCandidates = [];
+  const moneyRegex = /(?:[$€£]\s?\d{1,3}(?:[\,\d]*)(?:\.\d{1,2})?)|\d{1,3}(?:[\,\d]*)(?:\.\d{1,2})?/g;
+  const matches = raw.match(moneyRegex) || [];
+  for (const m of matches) {
+    // strip currency symbols and commas
+    const cleaned = m.replace(/[^0-9.]/g, '');
+    const n = parseFloat(cleaned);
+    if (!Number.isNaN(n)) amountCandidates.push(n);
+  }
+  // pick the largest candidate as total (simple heuristic)
+  const amount = amountCandidates.length ? Math.max(...amountCandidates) : null;
+
+  // Date detection: simple regex for common date patterns
+  let date = null;
+  const dateRegexes = [
+    /\b(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\b/,
+    /\b(\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})\b/,
+    /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*[ .,-]*(\d{1,2}),?[ .,-]*(\d{4})/i
+  ];
+  for (const rx of dateRegexes) {
+    const m = raw.match(rx);
+    if (m) {
+      // attempt to parse with Date
+      const candidate = m[0];
+      const parsed = new Date(candidate);
+      if (!Number.isNaN(parsed.getTime())) {
+        date = parsed.toISOString().slice(0, 10);
+        break;
+      }
+    }
+  }
+  // fallback: use upload date
+  if (!date) date = new Date().toISOString().slice(0, 10);
+
   return {
     source_file: base,
     bytes: stat.size,
-    date: new Date().toISOString().slice(0, 10),
-    vendor: 'Demo Vendor',
-    amount: parseFloat((Math.random() * 100).toFixed(2)),
+    date,
+    vendor,
+    amount,
     category: 'uncategorized',
-    raw_text_excerpt: 'OCR/LLM pipeline not configured yet. Replace parseReceipt()'.slice(0, 200)
+    raw_text_excerpt: raw.slice(0, 1000)
   };
 }
 
