@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Receipt extraction",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "date",
+    "vendor",
+    "amount",
+    "currency",
+    "category",
+    "line_items",
+    "confidence",
+    "overall_confidence"
+  ],
+  "properties": {
+    "date": {
+      "type": ["string", "null"],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "vendor": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "amount": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1000000
+    },
+    "currency": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Z]{3}$"
+    },
+    "category": {
+      "type": ["string", "null"],
+      "enum": [
+        "Groceries",
+        "Food & Dining",
+        "Transport",
+        "Shopping",
+        "Entertainment",
+        "Travel",
+        "Health",
+        "Bills & Utilities",
+        "Education",
+        "Subscriptions",
+        "Business",
+        "Other",
+        null
+      ]
+    },
+    "line_items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["description", "quantity", "unit_price", "total_price"],
+        "properties": {
+          "description": {
+            "type": ["string", "null"],
+            "minLength": 1,
+            "maxLength": 300
+          },
+          "quantity": {
+            "type": ["number", "null"],
+            "exclusiveMinimum": 0,
+            "maximum": 100000
+          },
+          "unit_price": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "total_price": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1000000
+          }
+        }
+      }
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "vendor",
+        "amount",
+        "currency",
+        "category",
+        "line_items"
+      ],
+      "properties": {
+        "date": { "$ref": "#/$defs/confidence" },
+        "vendor": { "$ref": "#/$defs/confidence" },
+        "amount": { "$ref": "#/$defs/confidence" },
+        "currency": { "$ref": "#/$defs/confidence" },
+        "category": { "$ref": "#/$defs/confidence" },
+        "line_items": { "$ref": "#/$defs/confidence" }
+      }
+    },
+    "overall_confidence": { "$ref": "#/$defs/confidence" }
+  },
+  "$defs": {
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  }
+}
