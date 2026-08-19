@@ -20,7 +20,7 @@ logger.info("Models loaded. Ready to serve.")
 
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pdf", ".bmp", ".tiff"}
 
-#To check if server is running before sending requests
+# To check if server is running before sending requests
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"}), 200
@@ -28,7 +28,7 @@ def health():
 @app.route("/ocr", methods=["POST"])
 def ocr_endpoint():
     if "receipt" not in request.files:
-        return jsonify({"error": "No file provided"})
+        return jsonify({"error": "No file provided"}), 400
 
     file = request.files["receipt"]
     ext = os.path.splitext(file.filename)[1].lower()
@@ -37,14 +37,13 @@ def ocr_endpoint():
         return jsonify({"error": f"Invalid file type: {ext}"}), 400
 
     tmp_path = None
-    # Create temp file path because PaddleOCR reads from a filesystem path
+    page_tmp_paths = []
+
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
             file.save(tmp.name)
             tmp_path = tmp.name
 
-        # PaddleOCR expects image file paths. If a PDF is uploaded, convert
-        # to images using pdf2image (if available). Otherwise return a helpful error.
         images_to_process = [tmp_path]
         if ext == ".pdf":
             try:
@@ -55,15 +54,15 @@ def ocr_endpoint():
                     page_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                     img.save(page_tmp.name, format='PNG')
                     images_to_process.append(page_tmp.name)
+                    page_tmp_paths.append(page_tmp.name)  # track for cleanup
             except Exception as pdf_exc:
                 logger.warning("pdf2image not available or conversion failed: %s", pdf_exc)
                 return jsonify({"error": "PDF uploaded but pdf2image/poppler not available on server. Please upload images or install pdf2image and poppler."}), 400
 
         pages = []
         all_texts = []
-        # Process each image (page)
+     
         for page_index, img_path in enumerate(images_to_process):
-            # ocr.ocr returns a list of lines; each line is [box, (text, score)]
             result = ocr.predict(img_path)
 
             texts = []
@@ -106,31 +105,24 @@ def ocr_endpoint():
             "full_text": full_text,
             "pages": pages,
         })
-    
+
     except Exception as e:
         logger.exception("OCR Failed")
         return jsonify({"error": str(e)}), 500
 
     finally:
-        # cleanup temporary files
         try:
             if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
         except Exception:
             pass
-        # also remove any temporary page images created from PDFs
-        try:
-            if ext == ".pdf":
-                # remove any png temp files in the temp directory created above
-                for f in os.listdir(tempfile.gettempdir()):
-                    if f.endswith('.png') and f.startswith('tmp'):
-                        p = os.path.join(tempfile.gettempdir(), f)
-                        try:
-                            os.remove(p)
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+
+        for p in page_tmp_paths:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001)
