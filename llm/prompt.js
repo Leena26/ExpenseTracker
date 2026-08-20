@@ -2,6 +2,36 @@ const receiptSchema = require('./schema.json');
 
 const examples = [
   {
+  input: `Nugget
+MARKETS
+Davis, California
+(530) 750-3800
+www.nuggetmarket.com
+Purchase
+203.07
+Auth # 03832D
+Cashier # 4442
+12/01/19 14:31
+Ref/Seq # 072730`,
+  output: {
+    date: '2019-12-01',
+    vendor: 'Nugget Markets',
+    amount: 203.07,
+    currency: null,
+    category: 'Other',
+    line_items: [],
+    confidence: {
+      date: 0.9,
+      vendor: 0.9,
+      amount: 0.95,
+      currency: 0.1,
+      category: 0.4,
+      line_items: 0.95
+    },
+    overall_confidence: 0.75
+  }
+},
+  {
     input: 'Fresh Mart\nDate: 2026-08-19\nBananas 2 x 2.00 4.00\nTOTAL SGD 12.50',
     output: {
       date: '2026-08-19',
@@ -80,6 +110,7 @@ Ref/Seq # 072730`,
 
 function buildReceiptExtractionPrompt(receiptText) {
   return ['IMPORTANT RULES:', 
+'- Every required field in the schema must be present. Never omit a required field; use null or an empty array when there is insufficient evidence.',
 '- Extract each field independently. Never use the value of one field as another field.',
 '- Use ONLY information explicitly present in the CURRENT RECEIPT.',
 '- Never copy values from the examples.',
@@ -99,15 +130,17 @@ function buildReceiptExtractionPrompt(receiptText) {
 '- If the OCR contains only a merchant name, transaction information, and a final amount, with no product/service descriptions, line_items MUST be [].',
 '',
 'DATE RULES:',
-'- Find the transaction date from the CURRENT RECEIPT before producing the JSON.',
-'- The transaction date is normally near the time, receipt sequence number, or transaction information.',
-'- The CURRENT RECEIPT contains: "12/01/19 14:31".',
-'- This is the transaction date and time.',
-'- The receipt is from California, USA, so interpret slash dates as MM/DD/YY unless the receipt provides stronger evidence otherwise.',
-'- Therefore "12/01/19" means December 1, 2019.',
-'- Return that date as "2019-12-01".',
-'- NEVER derive a date from an amount, receipt number, terminal ID, authorization number, or other unrelated number.',
-'- If no date can be reliably identified, return null.',
+'- Find the transaction date in the CURRENT RECEIPT.',
+'- Only use a date that actually appears in the CURRENT RECEIPT.',
+'- The final JSON date MUST ALWAYS use the format YYYY-MM-DD.',
+'- NEVER return the original date format from the receipt.',
+'- Convert dates such as 10/16/21 to 2021-10-16.',
+'- Convert dates such as 12/01/19 to 2019-12-01.',
+'- Convert dates such as 18/08/2026 to 2026-08-18.',
+'- For slash dates, determine whether the receipt uses MM/DD/YY or DD/MM/YY using the receipt context.',
+'- Do not use dates from examples or previous receipts.',
+'- Do not derive a date from an amount, receipt number, terminal ID, authorization number, or other unrelated number.',
+'- If the date cannot be reliably identified, return null.',
 '',
 'VENDOR RULES:',
 '- The vendor is the merchant or store name.',
@@ -128,8 +161,23 @@ function buildReceiptExtractionPrompt(receiptText) {
 '- If no currency symbol or code appears in the OCR, return null.',
 '',
 'CATEGORY RULES:',
-'- Choose the category based on the merchant and transaction information.',
-'- If the merchant or purchase type cannot be reliably determined, use "Other".',
+'- Choose the category based ONLY on the merchant and products/services explicitly visible in the CURRENT RECEIPT.',
+'- Use exactly one of the allowed categories from the schema.',
+'- Groceries: supermarkets, grocery stores, food shops, or receipts primarily containing food/grocery products.',
+'- Food & Dining: restaurants, cafes, takeaways, fast food, or prepared meals.',
+'- Shopping: general retail purchases, household goods, clothing, electronics, hardware, home goods, or mixed retail purchases.',
+'- Transport: taxis, rideshares, public transport, fuel, parking, or vehicle-related transport expenses.',
+'- Entertainment: cinemas, concerts, games, streaming entertainment, or recreational activities.',
+'- Travel: hotels, flights, accommodation, or travel bookings.',
+'- Health: pharmacies, medical services, dentists, hospitals, or healthcare products/services.',
+'- Bills & Utilities: electricity, water, gas, internet, phone, or other household bills.',
+'- Education: tuition, courses, books for education, or educational services.',
+'- Subscriptions: recurring software, memberships, or subscription services.',
+'- Business: business-related purchases or expenses explicitly identifiable as business expenses.',
+'- Other: use only when the purchase cannot reasonably be assigned to one of the categories above.',
+'- For a supermarket receipt, choose Groceries when the receipt is primarily food/grocery items.',
+'- For a supermarket receipt containing a mixture of groceries and general retail merchandise, choose Shopping.',
+'- Do not choose Other merely because the merchant sells multiple types of products.',
 '',
 'CONFIDENCE RULES:',
 '- You MUST return the "confidence" object.',
@@ -139,10 +187,13 @@ function buildReceiptExtractionPrompt(receiptText) {
 '- Do not omit these fields even when the extracted value is null.',
 '',
 'CONFIDENCE STRUCTURE:',
-'The "confidence" object belongs at the top level of the JSON.',
-'It must NOT appear inside individual line_items.',
-'The "overall_confidence" field belongs at the top level.',
-'It must NOT appear inside individual line_items.',
+'- The "confidence" object belongs at the top level of the JSON.',
+'- It must NOT appear inside individual line_items.',
+'- The "overall_confidence" field belongs at the top level.',
+'- It must NOT appear inside individual line_items.',
+'- line_items confidence should reflect how reliably the products, quantities, and prices were identified.',
+'- If multiple line items are clearly identified with corresponding prices, line_items confidence should be greater than 0.',
+'- Use a low line_items confidence only when the OCR makes the products or their prices genuinely ambiguous.',
 '',
 'LINE ITEM RULES:',
 '- Each line item MUST use exactly these fields: description, quantity, unit_price, total_price.',
@@ -150,7 +201,19 @@ function buildReceiptExtractionPrompt(receiptText) {
 '- Do not include overall_confidence inside a line item.',
 '- Do not use a "name" field; use "description".',
 '- If there are no clearly identifiable line items, return [].',
-  ].join('\n\n');
+'- If the relationship between a quantity and a product is ambiguous in the OCR, use null for quantity rather than assigning the quantity to the wrong product.',
+'- Do not move quantities between neighbouring line items.',
+'- Do not infer a quantity from an isolated number unless its relationship to the product is clear.',
+
+'',
+'CURRENT RECEIPT OCR:',
+'--------------------------------',
+receiptText,
+'--------------------------------',
+'',
+
+'Return ONLY the JSON object.'
+].join('\n\n');
 }
 
 module.exports = { buildReceiptExtractionPrompt };
