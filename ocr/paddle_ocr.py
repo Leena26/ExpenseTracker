@@ -63,6 +63,12 @@ def ocr_endpoint():
         all_texts = []
      
         for page_index, img_path in enumerate(images_to_process):
+            logger.info(
+                "Processing image: %s | exists=%s | size=%s bytes",
+                img_path,
+                os.path.exists(img_path),
+                os.path.getsize(img_path) if os.path.exists(img_path) else "N/A"
+            )
             result = ocr.predict(img_path)
 
             texts = []
