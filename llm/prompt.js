@@ -29,23 +29,21 @@ const examples = [
     }
   },
   {
-  input: `ugget
+  input: `Nugget
 MARKETS
 Davis, California
-(530) 750-3800
-www.nuggetmarket.com
-TerminalID: 943605
 Purchase
 203.07
 Auth # 03832D
 Cashier # 4442
-12/01/19 14:31 Ref/Seq # 072730`,
+12/01/19 14:31
+Ref/Seq # 072730`,
   output: {
     date: '2019-12-01',
     vendor: 'Nugget Markets',
     amount: 203.07,
     currency: null,
-    category: 'Groceries',
+    category: 'Other',
     line_items: [],
     confidence: {
       date: 0.9,
@@ -53,9 +51,9 @@ Cashier # 4442
       amount: 0.95,
       currency: 0.1,
       category: 0.5,
-      line_items: 0.1
+      line_items: 0.95
     },
-    overall_confidence: 0.65
+    overall_confidence: 0.75
   }
 },
   {
@@ -81,16 +79,24 @@ Cashier # 4442
 ];
 
 function buildReceiptExtractionPrompt(receiptText) {
-  return ['IMPORTANT RULES:',
+  return ['IMPORTANT RULES:', 
 '- Extract each field independently. Never use the value of one field as another field.',
 '- Use ONLY information explicitly present in the CURRENT RECEIPT.',
 '- Never copy values from the examples.',
 '- Never invent or hallucinate information.',
-'- If a field cannot be determined reliably, return null.',
+'- Use null when the OCR does not provide enough evidence. Never guess a missing value.',
+'- The OCR text is the ONLY source of truth. Never invent, infer, or fabricate receipt content.',
+'- amount is the final total charged for the whole receipt.',
+'- line_items must contain ONLY products or services explicitly visible in the OCR text.',
+'- If the OCR does not contain identifiable products or services with prices, return line_items as an empty array [].',
+'- NEVER create a line item merely because an amount exists.',
+'- NEVER assume the receipt contains a Burger, Drink, Food, Item, Product, Service, or any other item unless that item is explicitly present in the OCR text.',
+'- The receipt total must NOT be converted into a line item.',
 '- amount MUST be a JSON number, never a string. For example: 203.07, not "203.07".',
 '- quantity, unit_price, and total_price MUST also be JSON numbers or null, never strings.',
 '- confidence values MUST be JSON numbers between 0 and 1.',
 '- overall_confidence MUST be a JSON number between 0 and 1.',
+'- If the OCR contains only a merchant name, transaction information, and a final amount, with no product/service descriptions, line_items MUST be [].',
 '',
 'DATE RULES:',
 '- Find the transaction date from the CURRENT RECEIPT before producing the JSON.',
@@ -132,9 +138,18 @@ function buildReceiptExtractionPrompt(receiptText) {
 '- You MUST return "overall_confidence" as a number from 0 to 1.',
 '- Do not omit these fields even when the extracted value is null.',
 '',
+'CONFIDENCE STRUCTURE:',
+'The "confidence" object belongs at the top level of the JSON.',
+'It must NOT appear inside individual line_items.',
+'The "overall_confidence" field belongs at the top level.',
+'It must NOT appear inside individual line_items.',
+'',
 'LINE ITEM RULES:',
-'- Only include line items when individual purchased products or services are explicitly visible.',
-'- Do not invent line items.',
+'- Each line item MUST use exactly these fields: description, quantity, unit_price, total_price.',
+'- Do not include confidence inside a line item.',
+'- Do not include overall_confidence inside a line item.',
+'- Do not use a "name" field; use "description".',
+'- If there are no clearly identifiable line items, return [].',
   ].join('\n\n');
 }
 
