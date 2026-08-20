@@ -91,19 +91,20 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       error: err.message
     });
 
-  } finally {
 
-    // Delete uploaded temporary file
+  } 
+  finally {
     if (filePath) {
       try {
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-        }
+        await fs.promises.unlink(filePath);
+        console.log('Temporary upload deleted:', filePath);
       } catch (cleanupError) {
-        console.warn(
-          'Could not delete temporary upload:',
-          cleanupError.message
-        );
+        if (cleanupError.code !== 'ENOENT') {
+          console.warn(
+            'Could not delete temporary upload:',
+            cleanupError.message
+          );
+        }
       }
     }
   }
@@ -190,7 +191,6 @@ async function parseReceipt(filePath, originalName) {
   // ----------------------------------------------------------
 
   return {
-
     source_file:
       path.basename(originalName || filePath),
 
@@ -211,6 +211,15 @@ async function parseReceipt(filePath, originalName) {
 
     category:
       extracted.category ?? null,
+
+    line_items:
+      extracted.line_items ?? [],
+
+    confidence:
+      extracted.confidence ?? null,
+
+    overall_confidence:
+      extracted.overall_confidence ?? null,
 
     extraction_method:
       'paddleocr-qwen-local',
@@ -406,13 +415,31 @@ function validateExtraction(extracted) {
     );
 
   if (unexpected.length > 0) {
-
     throw new Error(
       `Qwen returned unexpected fields: ${
         unexpected.join(', ')
       }`
     );
   }
+  const requiredFields = [
+    'vendor',
+    'date',
+    'amount',
+    'currency',
+    'category',
+    'line_items',
+    'confidence',
+    'overall_confidence'
+  ];
+
+  for (const field of requiredFields) {
+    if (!(field in extracted)) {
+      throw new Error(
+        `Qwen response is missing required field: ${field}`
+      );
+    }
+  }
+
   if (
     extracted.amount !== null &&
     typeof extracted.amount !== 'number'
@@ -499,15 +526,130 @@ function validateExtraction(extracted) {
       }
     }
   }
-  if (
-    extracted.line_items !== undefined &&
-    !Array.isArray(extracted.line_items)
-  ) {
+  if (!Array.isArray(extracted.line_items)) {
+  throw new Error(
+    'Qwen returned invalid line_items.'
+  );
+  if (extracted.line_items.length > 0) {
 
+  const allowedLineItemFields = [
+    'description',
+    'quantity',
+    'unit_price',
+    'total_price'
+  ];
+
+  for (const item of extracted.line_items) {
+
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      Array.isArray(item)
+    ) {
+      throw new Error(
+        'Qwen returned an invalid line item.'
+      );
+    }
+
+    const unexpectedLineItemFields =
+      Object.keys(item).filter(
+        key => !allowedLineItemFields.includes(key)
+      );
+
+    if (unexpectedLineItemFields.length > 0) {
+      throw new Error(
+        `Qwen returned unexpected line item fields: ${
+          unexpectedLineItemFields.join(', ')
+        }`
+      );
+    }
+
+    if (
+      item.description !== null &&
+      typeof item.description !== 'string'
+    ) {
+      throw new Error(
+        'Qwen returned an invalid line item description.'
+      );
+    }
+
+    if (
+      item.quantity !== null &&
+      typeof item.quantity !== 'number'
+    ) {
+      throw new Error(
+        'Qwen returned an invalid line item quantity.'
+      );
+    }
+
+    if (
+      item.unit_price !== null &&
+      typeof item.unit_price !== 'number'
+    ) {
+      throw new Error(
+        'Qwen returned an invalid line item unit price.'
+      );
+    }
+
+    if (
+      item.total_price !== null &&
+      typeof item.total_price !== 'number'
+    ) {
+      throw new Error(
+        'Qwen returned an invalid line item total price.'
+      );
+    }
+  }
+}
+
+
+}
+
+for (const item of extracted.line_items) {
+
+  const requiredItemFields = [
+    'description',
+    'quantity',
+    'unit_price',
+    'total_price'
+  ];
+
+  const itemKeys = Object.keys(item);
+
+  const unexpectedItemFields =
+    itemKeys.filter(
+      key => !requiredItemFields.includes(key)
+    );
+
+  if (unexpectedItemFields.length > 0) {
     throw new Error(
-      'Qwen returned invalid line_items.'
+      `Qwen returned unexpected line item fields: ${
+        unexpectedItemFields.join(', ')
+      }`
     );
   }
+
+  for (const field of requiredItemFields) {
+
+    if (!(field in item)) {
+      throw new Error(
+        `Qwen line item is missing ${field}.`
+      );
+    }
+  }
+
+  if (item.description !== null && typeof item.description !== 'string') {
+    throw new Error(
+      'Qwen returned an invalid line item description.'
+    );
+  }
+
+  for (const field of ['quantity','unit_price','total_price']) {
+    if (item[field] !== null && typeof item[field] !== 'number') {
+      throw new Error(`Qwen returned an invalid line item ${field}.`);
+    }
+  }
+}
 }
 
 
