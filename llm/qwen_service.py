@@ -1,3 +1,4 @@
+import os
 from flask import Flask, request, jsonify
 import requests
 import json
@@ -11,6 +12,87 @@ logger = logging.getLogger(__name__)
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "qwen3:1.7b"
 
+RECEIPT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "date",
+        "vendor",
+        "amount",
+        "currency",
+        "category",
+        "line_items",
+        "confidence",
+        "overall_confidence"
+    ],
+    "properties": {
+        "date": {
+            "type": ["string", "null"]
+        },
+        "vendor": {
+            "type": ["string", "null"]
+        },
+        "amount": {
+            "type": ["number", "null"]
+        },
+        "currency": {
+            "type": ["string", "null"]
+        },
+        "category": {
+            "type": ["string", "null"]
+        },
+        "line_items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "description",
+                    "quantity",
+                    "unit_price",
+                    "total_price"
+                ],
+                "properties": {
+                    "description": {
+                        "type": ["string", "null"]
+                    },
+                    "quantity": {
+                        "type": ["number", "null"]
+                    },
+                    "unit_price": {
+                        "type": ["number", "null"]
+                    },
+                    "total_price": {
+                        "type": ["number", "null"]
+                    }
+                }
+            }
+        },
+        "confidence": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "date",
+                "vendor",
+                "amount",
+                "currency",
+                "category",
+                "line_items"
+            ],
+            "properties": {
+                "date": {"type": "number"},
+                "vendor": {"type": "number"},
+                "amount": {"type": "number"},
+                "currency": {"type": "number"},
+                "category": {"type": "number"},
+                "line_items": {"type": "number"}
+            }
+        },
+        "overall_confidence": {
+            "type": "number"
+        }
+    }
+}
 
 @app.route("/extract", methods=["POST"])
 def extract_endpoint():
@@ -50,16 +132,17 @@ def extract_endpoint():
             "think": False,
 
             # Force JSON output.
-            "format": "json",
-
-            # We want one complete response.
+            "format":RECEIPT_SCHEMA,
             "stream": False,
 
             "options": {
                 "temperature": 0,
-                "num_predict": 200
+                "num_predict": 500
             }
         }
+
+        logger.info("Using structured receipt schema")
+        logger.info("Required fields: %s", RECEIPT_SCHEMA.get("required"))
 
         response = requests.post(
             OLLAMA_URL,
