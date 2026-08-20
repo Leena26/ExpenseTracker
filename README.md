@@ -115,32 +115,6 @@ node clear_db.js
 
 This is useful when testing the receipt extraction pipeline from a clean database.
 
-## Quick tests
-
-Check that the OCR service is running:
-
-```
-GET http://localhost:5001/health
-```
-
-Test OCR directly:
-
-```bash
-curl -F "receipt=@/path/to/receipt.jpg;filename=receipt.jpg" http://localhost:5001/ocr
-```
-
-Check the Qwen service:
-
-```
-GET http://localhost:5002/health
-```
-
-Test the full pipeline:
-
-```bash
-curl -F "file=@/path/to/receipt.jpg" http://localhost:3000/upload
-```
-
 ## Receipt extraction
 
 The OCR service is responsible for reading the receipt, but OCR alone does not understand what each piece of text represents.
