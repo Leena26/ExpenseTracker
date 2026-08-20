@@ -1,11 +1,8 @@
-# Expense Receipt OCR — Demo
+# Expense Receipt OCR
 
 A local expense receipt OCR app that takes a receipt image or PDF, extracts the text, uses a local Qwen 3:1.7B model to turn that text into structured receipt data, and then displays the result and basic spending analytics.
 
-## What it does
-
-The current pipeline works like this:
-
+## Current Pipeline
 1. A user uploads a receipt through the web interface.
 2. The Node.js server receives the upload.
 3. The receipt is sent to the PaddleOCR Python microservice.
@@ -26,14 +23,14 @@ The current pipeline works like this:
 
 The main parts of the project are:
 
-- `server.js` — Node.js/Express backend. Handles uploads, connects the different services, validates the extracted receipt data, stores expenses, and serves the frontend.
-- `index.html` — frontend demo for uploading receipts, viewing parsed results, and displaying analytics.
-- `ocr/paddle_ocr.py` — Flask microservice running PaddleOCR.
-- `ocr/requirements.txt` — Python dependencies for the OCR service.
-- `llm/qwen_service.py` — Flask service that sends extraction requests to the local Qwen model through Ollama.
-- `llm/schema.json` — JSON schema used to control the structure of Qwen's output.
-- `data.sqlite` — local SQLite database containing stored expenses.
-- `clear_db.js` — development script for clearing the stored database contents.
+- `server.js` - Node.js/Express backend. Handles uploads, connects the different services, validates the extracted receipt data, stores expenses, and serves the frontend.
+- `index.html` - frontend demo for uploading receipts, viewing parsed results, and displaying analytics.
+- `ocr/paddle_ocr.py` - Flask microservice running PaddleOCR.
+- `ocr/requirements.txt` - Python dependencies for the OCR service.
+- `llm/qwen_service.py` - Flask service that sends extraction requests to the local Qwen model through Ollama.
+- `llm/schema.json` - JSON schema used to control the structure of Qwen's output.
+- `data.sqlite` - local SQLite database containing stored expenses.
+- `clear_db.js` - development script for clearing the stored database contents.
 
 ## Running the project
 
@@ -172,33 +169,26 @@ The extraction prompt in the project contains rules for dates, currencies, categ
 
 ### 1. Incorrect price extraction
 
-The first version of the extraction logic used a simple approach that could treat the highest numerical value on the receipt as the price.
-
-This caused problems because receipts contain lots of numbers that are not prices, such as transaction IDs, account numbers, dates, quantities, and balances.
-
-The extraction was changed to specifically identify the final receipt total instead of simply choosing the largest number.
+- The first version of the extraction logic used a simple approach that could treat the highest numerical value on the receipt as the price.
+- This caused problems because receipts contain lots of numbers that are not prices, such as transaction IDs, account numbers, dates, quantities, and balances.
+- The extraction was changed to specifically identify the final receipt total instead of simply choosing the largest number.
 
 ### 2. OCR could read the receipt, but not understand it
 
-PaddleOCR was generally able to extract the text from the receipts correctly.
-
-The problem was that OCR only gives us text. It does not reliably understand which text is the vendor, which number is the total, what category the purchase belongs to, or which date is the transaction date.
-
-An LLM was therefore added after the OCR stage to interpret the extracted text and return structured data.
+- PaddleOCR was generally able to extract the text from the receipts correctly.
+- The problem was that OCR only gives us text. It does not reliably understand which text is the vendor, which number is the total, what category the purchase belongs to, or which date is the transaction date.
+- An LLM was therefore added after the OCR stage to interpret the extracted text and return structured data.
 
 ### 3. Running Qwen 3 8B locally required too much RAM
 
-The original plan was to run Qwen 3 8B locally.
-
-The current device only has around 2GB of RAM available for this workload, which was not enough to run the model properly.
-
-A hosted Qwen API was considered instead.
+- The original plan was to run Qwen 3 8B locally.
+- The current device only has around 2GB of RAM available for this workload, which was not enough to run the model properly.
+- A hosted Qwen API was considered instead.
 
 ### 4. Hosted Qwen API required billing
 
-Using a hosted Qwen API would require payment/billing details.
-
-Rather than relying on a paid API, the project switched to a much smaller local model:
+- Using a hosted Qwen API would require payment/billing details.
+- Rather than relying on a paid API, the project switched to a much smaller local model:
 
 **Qwen 3:1.7B**
 
