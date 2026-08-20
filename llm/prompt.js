@@ -29,6 +29,36 @@ const examples = [
     }
   },
   {
+  input: `ugget
+MARKETS
+Davis, California
+(530) 750-3800
+www.nuggetmarket.com
+TerminalID: 943605
+Purchase
+203.07
+Auth # 03832D
+Cashier # 4442
+12/01/19 14:31 Ref/Seq # 072730`,
+  output: {
+    date: '2019-12-01',
+    vendor: 'Nugget Markets',
+    amount: 203.07,
+    currency: null,
+    category: 'Groceries',
+    line_items: [],
+    confidence: {
+      date: 0.9,
+      vendor: 0.9,
+      amount: 0.95,
+      currency: 0.1,
+      category: 0.5,
+      line_items: 0.1
+    },
+    overall_confidence: 0.65
+  }
+},
+  {
     input: 'Ride receipt\n18/08/2026\nFare $18.40\nPaid',
     output: {
       date: '2026-08-18',
@@ -57,13 +87,21 @@ function buildReceiptExtractionPrompt(receiptText) {
 '- Never copy values from the examples.',
 '- Never invent or hallucinate information.',
 '- If a field cannot be determined reliably, return null.',
+'- amount MUST be a JSON number, never a string. For example: 203.07, not "203.07".',
+'- quantity, unit_price, and total_price MUST also be JSON numbers or null, never strings.',
+'- confidence values MUST be JSON numbers between 0 and 1.',
+'- overall_confidence MUST be a JSON number between 0 and 1.',
 '',
 'DATE RULES:',
-'- The date must come from a date-like value in the receipt.',
-'- Valid date evidence includes formats such as DD/MM/YY, MM/DD/YY, DD-MM-YYYY, MM-DD-YYYY, or YYYY-MM-DD.',
-'- The receipt contains "12/01/19 14:31". Treat this as the transaction date and convert it to YYYY-MM-DD.',
-'- Do NOT use the purchase amount, receipt number, terminal ID, authorization number, or any other numeric value as the date.',
-'- Never output a date that does not correspond to an actual date appearing in the OCR.',
+'- Find the transaction date from the CURRENT RECEIPT before producing the JSON.',
+'- The transaction date is normally near the time, receipt sequence number, or transaction information.',
+'- The CURRENT RECEIPT contains: "12/01/19 14:31".',
+'- This is the transaction date and time.',
+'- The receipt is from California, USA, so interpret slash dates as MM/DD/YY unless the receipt provides stronger evidence otherwise.',
+'- Therefore "12/01/19" means December 1, 2019.',
+'- Return that date as "2019-12-01".',
+'- NEVER derive a date from an amount, receipt number, terminal ID, authorization number, or other unrelated number.',
+'- If no date can be reliably identified, return null.',
 '',
 'VENDOR RULES:',
 '- The vendor is the merchant or store name.',
@@ -77,13 +115,22 @@ function buildReceiptExtractionPrompt(receiptText) {
 '- A value such as "203.07" next to "Purchase" is a monetary amount.',
 '',
 'CURRENCY RULES:',
-'- Only return a currency when there is explicit evidence for it, such as USD, $, EUR, GBP, etc.',
-'- Do not infer currency merely from the merchant location.',
-'- If there is no reliable currency evidence, return null.',
+'- Return a currency only when the CURRENT RECEIPT explicitly shows a currency symbol or currency code.',
+'- "$" counts as explicit currency evidence and should be interpreted as USD for this receipt.',
+'- "USD", "EUR", "GBP", "SGD", etc. are explicit currency codes.',
+'- A country, city, merchant location, or phone number is NOT sufficient evidence.',
+'- If no currency symbol or code appears in the OCR, return null.',
 '',
 'CATEGORY RULES:',
 '- Choose the category based on the merchant and transaction information.',
 '- If the merchant or purchase type cannot be reliably determined, use "Other".',
+'',
+'CONFIDENCE RULES:',
+'- You MUST return the "confidence" object.',
+'- confidence MUST contain: date, vendor, amount, currency, category, and line_items.',
+'- Each confidence value must be a number from 0 to 1.',
+'- You MUST return "overall_confidence" as a number from 0 to 1.',
+'- Do not omit these fields even when the extracted value is null.',
 '',
 'LINE ITEM RULES:',
 '- Only include line items when individual purchased products or services are explicitly visible.',
