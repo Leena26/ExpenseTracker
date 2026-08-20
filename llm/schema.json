@@ -3,16 +3,7 @@
   "title": "Receipt extraction",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "date",
-    "vendor",
-    "amount",
-    "currency",
-    "category",
-    "line_items",
-    "confidence",
-    "overall_confidence"
-  ],
+  
   "properties": {
     "date": {
       "type": ["string", "null"],
