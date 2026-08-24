@@ -256,7 +256,7 @@ async function runOCR(filePath, originalName) {
       form,
       {
         headers: form.getHeaders(),
-        timeout: 120000
+        timeout: 300000
       }
     );
 

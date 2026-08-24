@@ -48,7 +48,7 @@ def ocr_endpoint():
         if ext == ".pdf":
             try:
                 from pdf2image import convert_from_path
-                pages_images = convert_from_path(tmp_path)
+                pages_images = convert_from_path(tmp_path, poppler_path=r"C:\Users\Leena Abigail Dany\Release-26.02.0-0\poppler-26.02.0\Library\bin")
                 images_to_process = []
                 for i, img in enumerate(pages_images):
                     page_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
