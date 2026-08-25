@@ -19,7 +19,7 @@ const LOCAL_LLM_URL =
   process.env.LOCAL_LLM_URL || 'http://localhost:5002';
 
 const LOCAL_LLM_MODEL =
-  process.env.LOCAL_LLM_MODEL || 'LLM3:1.7b';
+  process.env.LOCAL_LLM_MODEL || 'qwen3:1.7b';
 
 const LLM_OCR_MAX_CHARS =
   Number.parseInt(process.env.LLM_OCR_MAX_CHARS || '24000', 10);
@@ -446,7 +446,7 @@ function validateExtraction(extracted) {
   }
   if (typeof extracted.is_receipt !== 'boolean') {
     throw new Error(
-      'Qwen returned an invalid is_receipt value.'
+      'LLM returned an invalid is_receipt value.'
     );
   }
 

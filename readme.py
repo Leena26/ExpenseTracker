@@ -48,7 +48,7 @@ The main parts of the project are:
 
 - `ocr/requirements.txt` - Python dependencies for the OCR service.
 
-- `llm/llm_service.py` - Flask service that sends extraction requests to
+- `llm/qwen_service.py` - Flask service that sends extraction requests to
   the local Gemma model through Ollama.
 
 - `llm/schema.json` - JSON schema used to control the structure of the
@@ -112,7 +112,7 @@ ollama list
 Then start the Python Gemma service:
 
 ```bash
-python llm/llm_service.py
+python llm/qwen_service.py
 ```
 
 The extraction service runs on:
@@ -142,6 +142,20 @@ The application runs on:
 `http://localhost:3000`
 
 Open that address in a browser to use the application.
+
+## Clearing Stored Data
+
+For development, `clear_db.js` can be used to remove existing expense data
+and start again.
+
+Run:
+
+```bash
+node clear_db.js
+```
+
+This is useful when testing the receipt extraction pipeline from a clean
+database.
 
 ## Receipt Extraction
 
@@ -216,11 +230,21 @@ This prevents unrelated images or documents from being treated as receipts.
 - This provides a lightweight local LLM for receipt extraction while
   avoiding dependence on a hosted API.
 
+### 4. Hosted LLM APIs Required Billing
 
-### 4. LLM Hallucinated Values
+- Using a hosted LLM API would require payment or billing details.
+
+- Rather than relying on a paid external API, the project uses Ollama to
+  run the model locally.
+
+### 5. LLM Hallucinated Values
 
 The LLM could sometimes make up values that were not actually present in
 the receipt.
+
+For example, it could invent a line item when the OCR did not contain that
+item. It could also return incorrect confidence values or copy information
+from another example.
 
 To reduce this, the extraction prompt was made much stricter.
 
@@ -237,7 +261,7 @@ The prompt now tells the model to:
 
 The Node.js server also validates the response against the expected schema.
 
-### 5. Non-Receipt Images Were Being Accepted
+### 6. Non-Receipt Images Were Being Accepted
 
 Initially, any image containing readable text could be processed as a
 receipt.
@@ -251,19 +275,31 @@ The LLM is now instructed to determine whether the OCR content represents
 an actual receipt. Non-receipt documents return `is_receipt: false` and are
 rejected by the Node.js validation layer.
 
-### 6. Inconsistent Date Formats
+### 7. Inconsistent Date Formats
 
-Receipts can use different date formats so the extraction prompt was updated with explicit date rules requiring every
+Receipts can use different date formats, for example:
+
+- `12/01/19`
+- `10/16/21`
+- `18/08/2026`
+
+The extraction prompt was updated with explicit date rules requiring every
 valid date to be returned as:
 
 ```text
 YYYY-MM-DD
 ```
 
+For example:
+
+- `10/16/21` → `2021-10-16`
+- `12/01/19` → `2019-12-01`
+- `18/08/2026` → `2026-08-18`
+
 The Node.js server also validates the date format before accepting the
 result.
 
-### 7. PDF Processing
+### 8. PDF Processing
 
 PDF uploads are converted into individual page images using `pdf2image`
 and Poppler before being passed to PaddleOCR.
