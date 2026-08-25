@@ -19,7 +19,7 @@ const LOCAL_LLM_URL =
   process.env.LOCAL_LLM_URL || 'http://localhost:5002';
 
 const LOCAL_LLM_MODEL =
-  process.env.LOCAL_LLM_MODEL || 'qwen3:1.7b';
+  process.env.LOCAL_LLM_MODEL || 'LLM3:1.7b';
 
 const LLM_OCR_MAX_CHARS =
   Number.parseInt(process.env.LLM_OCR_MAX_CHARS || '24000', 10);
@@ -35,7 +35,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ============================================================
 // POST /upload
-// Receipt -> PaddleOCR -> Qwen -> Database
+// Receipt -> PaddleOCR -> LLM -> Database
 // ============================================================
 
 app.post('/upload', upload.single('file'), async (req, res) => {
@@ -165,7 +165,7 @@ async function parseReceipt(filePath, originalName) {
 
 
   // ----------------------------------------------------------
-  // STEP 2: Qwen
+  // STEP 2: LLM
   // ----------------------------------------------------------
 
   console.log(
@@ -173,10 +173,10 @@ async function parseReceipt(filePath, originalName) {
   );
 
   const extracted =
-    await extractReceiptWithLocalQwen(ocrText);
+    await extractReceiptWithLocalLLM(ocrText);
 
-  console.log('Qwen extraction completed.');
-  console.log('Qwen result:', extracted);
+  console.log('LLM extraction completed.');
+  console.log('LLM result:', extracted);
 
 
   // ----------------------------------------------------------
@@ -221,8 +221,11 @@ async function parseReceipt(filePath, originalName) {
     overall_confidence:
       extracted.overall_confidence ?? null,
 
+    is_receipt:
+      extracted.is_receipt ?? false,
+
     extraction_method:
-      'paddleocr-qwen-local',
+      'paddleocr-LLM-local',
 
     raw_text_excerpt:
       ocrText.slice(0, 2000)
@@ -297,10 +300,10 @@ async function runOCR(filePath, originalName) {
 
 
 // ============================================================
-// LOCAL QWEN / OLLAMA
+// LOCAL LLM / OLLAMA
 // ============================================================
 
-async function extractReceiptWithLocalQwen(ocrText) {
+async function extractReceiptWithLocalLLM(ocrText) {
 
   if (
     typeof ocrText !== 'string' ||
@@ -323,7 +326,7 @@ async function extractReceiptWithLocalQwen(ocrText) {
   const prompt =
     buildReceiptExtractionPrompt(receiptText);
 
-  console.log('Sending OCR text to local Qwen service...');
+  console.log('Sending OCR text to local LLM service...');
 
   let response;
 
@@ -343,7 +346,7 @@ async function extractReceiptWithLocalQwen(ocrText) {
 
     if (error.code === 'ECONNREFUSED') {
       throw new Error(
-        `Qwen service is not running at ${LOCAL_LLM_URL}`
+        `LLM service is not running at ${LOCAL_LLM_URL}`
       );
     }
 
@@ -355,7 +358,7 @@ async function extractReceiptWithLocalQwen(ocrText) {
       error.message;
 
     throw new Error(
-      `Qwen service request failed${
+      `LLM service request failed${
         status ? ` (HTTP ${status})` : ''
       }: ${message}`
     );
@@ -368,7 +371,7 @@ async function extractReceiptWithLocalQwen(ocrText) {
 
     throw new Error(
       response.data?.error ||
-      'Qwen service returned an invalid response.'
+      'LLM service returned an invalid response.'
     );
   }
 
@@ -382,7 +385,7 @@ async function extractReceiptWithLocalQwen(ocrText) {
   ) {
 
     throw new Error(
-      'Qwen returned an invalid JSON object.'
+      'LLM returned an invalid JSON object.'
     );
   }
 
@@ -390,7 +393,7 @@ async function extractReceiptWithLocalQwen(ocrText) {
 }
 
 // ============================================================
-// VALIDATE QWEN EXTRACTION
+// VALIDATE LLM EXTRACTION
 // ============================================================
 
 function validateExtraction(extracted) {
@@ -403,7 +406,8 @@ function validateExtraction(extracted) {
     'category',
     'confidence',
     'line_items',
-    'overall_confidence'
+    'overall_confidence',
+    'is_receipt'
   ];
 
   const keys =
@@ -416,12 +420,13 @@ function validateExtraction(extracted) {
 
   if (unexpected.length > 0) {
     throw new Error(
-      `Qwen returned unexpected fields: ${
+      `LLM returned unexpected fields: ${
         unexpected.join(', ')
       }`
     );
   }
   const requiredFields = [
+    'is_receipt',
     'vendor',
     'date',
     'amount',
@@ -435,9 +440,20 @@ function validateExtraction(extracted) {
   for (const field of requiredFields) {
     if (!(field in extracted)) {
       throw new Error(
-        `Qwen response is missing required field: ${field}`
+        `LLM response is missing required field: ${field}`
       );
     }
+  }
+  if (typeof extracted.is_receipt !== 'boolean') {
+    throw new Error(
+      'Qwen returned an invalid is_receipt value.'
+    );
+  }
+
+  if (!extracted.is_receipt) {
+    throw new Error(
+      'The uploaded file does not appear to be a receipt.'
+    );
   }
 
   if (
@@ -446,7 +462,7 @@ function validateExtraction(extracted) {
   ) {
 
     throw new Error(
-      'Qwen returned an invalid amount.'
+      'LLM returned an invalid amount.'
     );
   }
 
@@ -458,9 +474,11 @@ function validateExtraction(extracted) {
   ) {
 
     throw new Error(
-      'Qwen returned an invalid date format.'
+      'LLM returned an invalid date format.'
     );
   }
+
+  
 
   const stringFields = [
     'vendor',
@@ -476,7 +494,7 @@ function validateExtraction(extracted) {
     ) {
 
       throw new Error(
-        `Qwen returned an invalid ${field}.`
+        `LLM returned an invalid ${field}.`
       );
     }
   }
@@ -490,7 +508,7 @@ function validateExtraction(extracted) {
   ) {
 
     throw new Error(
-      'Qwen returned an invalid overall_confidence.'
+      'LLM returned an invalid overall_confidence.'
     );
   }
 
@@ -505,7 +523,7 @@ function validateExtraction(extracted) {
     ) {
 
       throw new Error(
-        'Qwen returned an invalid confidence object.'
+        'LLM returned an invalid confidence object.'
       );
     }
 
@@ -521,14 +539,14 @@ function validateExtraction(extracted) {
       ) {
 
         throw new Error(
-          `Qwen returned an invalid confidence value for ${field}.`
+          `LLM returned an invalid confidence value for ${field}.`
         );
       }
     }
   }
   if (!Array.isArray(extracted.line_items)) {
   throw new Error(
-    'Qwen returned invalid line_items.'
+    'LLM returned invalid line_items.'
   );
   if (extracted.line_items.length > 0) {
 
@@ -547,7 +565,7 @@ function validateExtraction(extracted) {
       Array.isArray(item)
     ) {
       throw new Error(
-        'Qwen returned an invalid line item.'
+        'LLM returned an invalid line item.'
       );
     }
 
@@ -558,7 +576,7 @@ function validateExtraction(extracted) {
 
     if (unexpectedLineItemFields.length > 0) {
       throw new Error(
-        `Qwen returned unexpected line item fields: ${
+        `LLM returned unexpected line item fields: ${
           unexpectedLineItemFields.join(', ')
         }`
       );
@@ -569,7 +587,7 @@ function validateExtraction(extracted) {
       typeof item.description !== 'string'
     ) {
       throw new Error(
-        'Qwen returned an invalid line item description.'
+        'LLM returned an invalid line item description.'
       );
     }
 
@@ -578,7 +596,7 @@ function validateExtraction(extracted) {
       typeof item.quantity !== 'number'
     ) {
       throw new Error(
-        'Qwen returned an invalid line item quantity.'
+        'LLM returned an invalid line item quantity.'
       );
     }
 
@@ -587,7 +605,7 @@ function validateExtraction(extracted) {
       typeof item.unit_price !== 'number'
     ) {
       throw new Error(
-        'Qwen returned an invalid line item unit price.'
+        'LLM returned an invalid line item unit price.'
       );
     }
 
@@ -596,7 +614,7 @@ function validateExtraction(extracted) {
       typeof item.total_price !== 'number'
     ) {
       throw new Error(
-        'Qwen returned an invalid line item total price.'
+        'LLM returned an invalid line item total price.'
       );
     }
   }
@@ -623,7 +641,7 @@ for (const item of extracted.line_items) {
 
   if (unexpectedItemFields.length > 0) {
     throw new Error(
-      `Qwen returned unexpected line item fields: ${
+      `LLM returned unexpected line item fields: ${
         unexpectedItemFields.join(', ')
       }`
     );
@@ -633,20 +651,20 @@ for (const item of extracted.line_items) {
 
     if (!(field in item)) {
       throw new Error(
-        `Qwen line item is missing ${field}.`
+        `LLM line item is missing ${field}.`
       );
     }
   }
 
   if (item.description !== null && typeof item.description !== 'string') {
     throw new Error(
-      'Qwen returned an invalid line item description.'
+      'LLM returned an invalid line item description.'
     );
   }
 
   for (const field of ['quantity','unit_price','total_price']) {
     if (item[field] !== null && typeof item[field] !== 'number') {
-      throw new Error(`Qwen returned an invalid line item ${field}.`);
+      throw new Error(`LLM returned an invalid line item ${field}.`);
     }
   }
 }

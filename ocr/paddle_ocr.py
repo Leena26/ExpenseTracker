@@ -12,7 +12,7 @@ app = Flask(__name__)
 
 logger.info("Loading PaddleOCR models...")
 ocr = PaddleOCR(
-    use_textline_orientation=True,
+    use_textline_orientation=False,
     lang="en",
     enable_mkldnn=False
 )
@@ -48,28 +48,107 @@ def ocr_endpoint():
         if ext == ".pdf":
             try:
                 from pdf2image import convert_from_path
-                pages_images = convert_from_path(tmp_path, poppler_path=r"C:\Users\Leena Abigail Dany\Release-26.02.0-0\poppler-26.02.0\Library\bin")
                 images_to_process = []
-                for i, img in enumerate(pages_images):
-                    page_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                    img.save(page_tmp.name, format='PNG')
-                    images_to_process.append(page_tmp.name)
-                    page_tmp_paths.append(page_tmp.name)  # track for cleanup
-            except Exception as pdf_exc:
-                logger.warning("pdf2image not available or conversion failed: %s", pdf_exc)
-                return jsonify({"error": "PDF uploaded but pdf2image/poppler not available on server. Please upload images or install pdf2image and poppler."}), 400
+                from pdf2image.pdf2image import pdfinfo_from_path
 
+                info = pdfinfo_from_path(
+                    tmp_path,
+                    poppler_path=r"C:\Users\Leena Abigail Dany\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+                )
+
+                total_pages = int(info["Pages"])
+
+                logger.info("PDF contains %d pages", total_pages)
+
+                for page_num in range(1, total_pages + 1):
+
+                    logger.info(
+                        "Converting PDF page %d/%d...",
+                        page_num,
+                        total_pages
+                    )
+
+                    pages = convert_from_path(
+                        tmp_path,
+                        dpi=100,
+                        first_page=page_num,
+                        last_page=page_num,
+                        poppler_path=r"C:\Users\Leena Abigail Dany\Release-26.02.0-0\poppler-26.02.0\Library\bin"
+                    )
+
+                    if not pages:
+                        continue
+
+                    img = pages[0]
+                    max_width = 1600
+
+                    if img.width > max_width:
+                        ratio = max_width / img.width
+                        new_height = int(img.height * ratio)
+
+                        img = img.resize((max_width, new_height))
+
+                    page_tmp = tempfile.NamedTemporaryFile(
+                        delete=False,
+                        suffix=".png"
+                    )
+
+                    img.save(
+                        page_tmp.name,
+                        format="PNG"
+                    )
+
+                    page_tmp.close()
+
+                    images_to_process.append(page_tmp.name)
+                    page_tmp_paths.append(page_tmp.name)
+
+                    logger.info(
+                        "PDF page %d/%d converted successfully",
+                        page_num,
+                        total_pages
+                    )
+
+            except Exception as pdf_exc:
+                logger.warning(
+                    "pdf2image not available or conversion failed: %s",
+                    pdf_exc
+                )
+
+                return jsonify({
+                    "error": (
+                        "PDF uploaded but pdf2image/poppler not available "
+                        "on server. Please upload images or install "
+                        "pdf2image and poppler."
+                    )
+                }), 400
+    
         pages = []
         all_texts = []
      
         for page_index, img_path in enumerate(images_to_process):
             logger.info(
-                "Processing image: %s | exists=%s | size=%s bytes",
+                "Processing page %d/%d: %s | exists=%s | size=%s bytes",
+                page_index + 1,
+                len(images_to_process),
                 img_path,
                 os.path.exists(img_path),
                 os.path.getsize(img_path) if os.path.exists(img_path) else "N/A"
             )
+
+            logger.info(
+                "Starting PaddleOCR for page %d/%d...",
+                page_index + 1,
+                len(images_to_process)
+            )
+
             result = ocr.predict(img_path)
+
+            logger.info(
+                "PaddleOCR completed for page %d/%d",
+                page_index + 1,
+                len(images_to_process)
+            )
 
             texts = []
             scores = []

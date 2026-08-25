@@ -10,12 +10,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL = "qwen3:1.7b"
+MODEL = os.getenv("LOCAL_LLM_MODEL", "gemma4:e2b")
 
 RECEIPT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "required": [
+        "is_receipt",
         "date",
         "vendor",
         "amount",
@@ -26,6 +27,9 @@ RECEIPT_SCHEMA = {
         "overall_confidence"
     ],
     "properties": {
+        "is_receipt": {
+            "type": "boolean"
+        },
         "date": {
             "type": ["string", "null"]
         },
@@ -128,7 +132,7 @@ def extract_endpoint():
             ],
 
             # IMPORTANT:
-            # Disable Qwen's reasoning for this extraction task.
+            # Disable Llm's reasoning for this extraction task.
             "think": False,
 
             # Force JSON output.
@@ -162,16 +166,16 @@ def extract_endpoint():
 
         if not content:
             raise RuntimeError(
-                "Qwen returned empty output."
+                "Llm returned empty output."
             )
 
         logger.info(
-            "Raw Qwen output: %s",
+            "Raw Llm output: %s",
             content
         )
 
         # --------------------------------------------------
-        # Parse JSON returned by Qwen
+        # Parse JSON returned by Llm
         # --------------------------------------------------
 
         try:
@@ -181,13 +185,13 @@ def extract_endpoint():
         except json.JSONDecodeError as e:
 
             logger.error(
-                "Qwen returned invalid JSON: %s",
+                "Llm returned invalid JSON: %s",
                 content
             )
 
             return jsonify({
                 "success": False,
-                "error": "Qwen returned invalid JSON",
+                "error": "Llm returned invalid JSON",
                 "raw_output": content
             }), 200
 
@@ -201,7 +205,7 @@ def extract_endpoint():
 
             return jsonify({
                 "success": False,
-                "error": "Qwen response must be a JSON object",
+                "error": "Llm response must be a JSON object",
                 "raw_output": content
             }), 200
 
@@ -228,7 +232,7 @@ def extract_endpoint():
     except Exception as e:
 
         logger.exception(
-            "Qwen extraction failed"
+            "Llm extraction failed"
         )
 
         return jsonify({
@@ -249,7 +253,7 @@ def health():
 if __name__ == "__main__":
 
     logger.info(
-        "Starting Qwen extraction service..."
+        "Starting Llm extraction service..."
     )
 
     logger.info(
