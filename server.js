@@ -24,6 +24,14 @@ const LOCAL_LLM_MODEL =
 const LLM_OCR_MAX_CHARS =
   Number.parseInt(process.env.LLM_OCR_MAX_CHARS || '24000', 10);
 
+const configuredValidationRetries =
+  Number.parseInt(process.env.LLM_VALIDATION_RETRIES || '1', 10);
+
+const LLM_VALIDATION_RETRIES =
+  Number.isInteger(configuredValidationRetries) && configuredValidationRetries >= 0
+    ? configuredValidationRetries
+    : 1;
+
 const upload = multer({
   dest: path.join(__dirname, 'uploads/')
 });
@@ -172,8 +180,36 @@ async function parseReceipt(filePath, originalName) {
     `Sending OCR text to ${LOCAL_LLM_MODEL}...`
   );
 
-  const extracted =
-    await extractReceiptWithLocalLLM(ocrText);
+  let extracted;
+  let retryContext = null;
+
+  for (let attempt = 0; attempt <= LLM_VALIDATION_RETRIES; attempt += 1) {
+    extracted = await extractReceiptWithLocalLLM(ocrText, retryContext);
+
+    try {
+      validateExtraction(extracted);
+      break;
+    } catch (validationError) {
+      if (validationError.message === 'The uploaded file does not appear to be a receipt.') {
+        throw validationError;
+      }
+
+      console.error('LLM output failed schema validation:', {
+        attempt: attempt + 1,
+        error: validationError.message,
+        invalidData: extracted
+      });
+
+      if (attempt === LLM_VALIDATION_RETRIES) {
+        throw validationError;
+      }
+
+      retryContext = {
+        validationError: validationError.message,
+        previousInvalidData: extracted
+      };
+    }
+  }
 
   console.log('LLM extraction completed.');
   console.log('LLM result:', extracted);
@@ -303,7 +339,7 @@ async function runOCR(filePath, originalName) {
 // LOCAL LLM / OLLAMA
 // ============================================================
 
-async function extractReceiptWithLocalLLM(ocrText) {
+async function extractReceiptWithLocalLLM(ocrText, retryContext = null) {
 
   if (
     typeof ocrText !== 'string' ||
@@ -324,7 +360,7 @@ async function extractReceiptWithLocalLLM(ocrText) {
 
   // Build the prompt using prompt.js
   const prompt =
-    buildReceiptExtractionPrompt(receiptText);
+    buildReceiptExtractionPrompt(receiptText, retryContext);
 
   console.log('Sending OCR text to local LLM service...');
 

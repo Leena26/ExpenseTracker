@@ -112,8 +112,8 @@ Ref/Seq # 072730`,
   }
 ];
 
-function buildReceiptExtractionPrompt(receiptText) {
-  return ['IMPORTANT RULES:', 
+function buildReceiptExtractionPrompt(receiptText, retryContext = null) {
+  const prompt = ['IMPORTANT RULES:', 
 '- Every required field in the schema must be present. Never omit a required field; use null or an empty array when there is insufficient evidence.',
 '- Extract each field independently. Never use the value of one field as another field.',
 '- Use ONLY information explicitly present in the CURRENT RECEIPT.',
@@ -235,7 +235,21 @@ receiptText,
 '',
 
 'Return ONLY the JSON object.'
-].join('\n\n');
+  ];
+
+  if (retryContext) {
+    prompt.push(
+      '',
+      'RETRY CORRECTION:',
+      'Your previous response failed schema validation.',
+      `Validation error: ${retryContext.validationError}`,
+      'Do not repeat the previous invalid response. Re-evaluate it against every rule and return a corrected JSON object.',
+      'PREVIOUS INVALID DATA:',
+      JSON.stringify(retryContext.previousInvalidData, null, 2)
+    );
+  }
+
+  return prompt.join('\n\n');
 }
 
 module.exports = { buildReceiptExtractionPrompt };
